@@ -49,3 +49,49 @@ func (op *AppsOp) ReadLogs(appName string) (string, error) {
 	}
 	return s.Data.Logs, nil
 }
+
+func (op *AppsOp) RollbackDeployment(appName, version string) (string, error) {
+	type serverResponse struct {
+		Error   bool   `json:"error"`
+		Message string `json:"message"`
+		Data    struct {
+			Address string `json:"address"`
+			Version string `json:"version"`
+		} `json:"data"`
+	}
+	s := &serverResponse{}
+	err := op.httpClient.Do(fmt.Sprintf("/apps/rollback/%s?version=%s", appName, version), "PUT", nil, s)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s | %s", s.Message, s.Data.Version), nil
+}
+
+func (op *AppsOp) ProvisionResource(appName, resName string) (string, error) {
+	type serverResponse struct {
+		Error   bool   `json:"error"`
+		Message string `json:"message"`
+		Data    struct {
+			Id string `json:"id"`
+		} `json:"data"`
+	}
+	s := &serverResponse{}
+	err := op.httpClient.Do(fmt.Sprintf("/apps/resource/new/%s?name=%s", appName, resName), "POST", nil, s)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s | %s", s.Message, s.Data.Id), nil
+}
+
+func (op *AppsOp) DeleteResource(appName, resName string) (string, error) {
+	type serverResponse struct {
+		Error   bool   `json:"error"`
+		Message string `json:"message"`
+	}
+	s := &serverResponse{}
+	err := op.httpClient.Do(fmt.Sprintf("/apps/resource/remove/%s?name=%s", appName, resName), "DELETE", nil, s)
+	if err != nil {
+		return "", err
+	}
+	return s.Message, nil
+}

@@ -23,5 +23,11 @@ type DeploymentResult struct {
 	Message string `json:"message"`
 	Data    struct {
 		AccessUrl string `json:"access_url"`
+		Version string `json:"version"`
 	}
+}
+
+type Env struct {
+	Key string `json:"key"`
+	Value string `json:"value"`
 }

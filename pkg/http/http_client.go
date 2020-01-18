@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-const serverUrl = "http://localhost:4001/api"
+// const serverUrl = "http://localhost:4001/api"
+const serverUrl = "http://167.172.159.245:4005/api"
 
 type Client interface {
 	Do(endpoint, method string, payload interface{}, response interface{}) error

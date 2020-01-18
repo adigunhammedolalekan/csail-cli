@@ -12,19 +12,14 @@ import (
 	"time"
 )
 
-func authCmd() *cobra.Command {
-	authCommad := &cobra.Command{
-		Use: "auth",
-		Run: func(cmd *cobra.Command, args []string) {
-		},
-	}
-	authCommad.AddCommand(&cobra.Command{
+func authCmd() {
+	authCommand := &cobra.Command{
 		Use: "login",
 		Run: func(cmd *cobra.Command, args []string) {
 			performAuthentication()
 		},
-	})
-	return authCommad
+	}
+	rootCmd.AddCommand(authCommand)
 }
 
 func performAuthentication() {

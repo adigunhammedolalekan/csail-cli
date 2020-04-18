@@ -34,6 +34,10 @@ func NewDeploymentClient(appName string, account *types.Account) *DeploymentClie
 	}
 }
 
+func (s *DeploymentClient) DockerDeploy(result *types.DeploymentResult) error {
+	return nil
+}
+
 func (s *DeploymentClient) DeployApp(binPath string, result *types.DeploymentResult) error {
 	buf := &bytes.Buffer{}
 	writer := multipart.NewWriter(buf)
@@ -72,6 +76,7 @@ func (s *DeploymentClient) DeployApp(binPath string, result *types.DeploymentRes
 	if err != nil {
 		return err
 	}
+
 	if err := json.Unmarshal(body, result); err != nil {
 		return err
 	}
@@ -79,6 +84,19 @@ func (s *DeploymentClient) DeployApp(binPath string, result *types.DeploymentRes
 		return errors.New(result.Message)
 	}
 	return nil
+}
+
+func buildImage(name, dir string) (string, error) {
+	cmd := exec.Command("docker", "build", "-t", name, dir)
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	u := fmt.Sprintf("registry.hostgolang.com/%s", name)
+	tag := exec.Command("docker", "tag", name, u)
+	if err := tag.Run(); err != nil {
+		return "", err
+	}
+	return "", nil
 }
 
 func (s *DeploymentClient) BuildBinary() error {

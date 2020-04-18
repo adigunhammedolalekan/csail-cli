@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 )
@@ -34,10 +35,16 @@ func appsCmd() {
 		Short: "Retrieve application logs",
 		Long: "Run `hostgo log` to retrieve application logs",
 	}
+
 	deploymentCmd := &cobra.Command{
 		Use: "deploy",
 		Run: func(cmd *cobra.Command, args []string) {
-			deployApp()
+			if len(args) < 1 {
+				color.Red("please provide docker image tag")
+				return
+			}
+			dockerUrl := args[0]
+			dockerDeploy(dockerUrl)
 		},
 		Short: "Deploy or update application deployment.",
 		Long: "`hostgo deploy` will pack and deploy your application to hostgolang.com",
@@ -46,8 +53,8 @@ func appsCmd() {
 		Use: "scale",
 		Run: func(cmd *cobra.Command, args []string) {
 			i, _ := cmd.Flags().GetInt32("instances")
-			if i < 2 {
-				color.Red("invalid instance count. Instance should be at least 2")
+			if i < 1 {
+				color.Red("invalid instance count. Instance should be at least 1")
 				os.Exit(1)
 			}
 			scaleApp(i)
@@ -61,6 +68,31 @@ func appsCmd() {
 			listInstances()
 		},
 		Short: "Print running application instances",
+	}
+	addDomainRootCmd := &cobra.Command{
+		Use: "domain",
+	}
+	addDomainCmd := &cobra.Command{
+		Use: "add",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) == 0 {
+				color.Red("domain to add is missing")
+				return
+			}
+			domain := args[0]
+			addDomain(domain)
+		},
+	}
+	removeDomainCmd := &cobra.Command{
+		Use: "remove",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) == 0 {
+				color.Red("domain to remove is missing")
+				return
+			}
+			domain := args[0]
+			removeDomain(domain)
+		},
 	}
 	rollbackCmd := &cobra.Command{
 		Use: "rollback",
@@ -79,7 +111,7 @@ func appsCmd() {
 					os.Exit(1)
 				}
 				httpClient := http.NewHttpClient(account)
-				s := spinner.New(spinner.CharSets[4], 200*time.Millisecond)
+				s := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
 				s.Prefix = "working..."
 				s.Start()
 				op := ops.NewAppsOp(httpClient)
@@ -99,6 +131,7 @@ func appsCmd() {
 	resourceCmd := &cobra.Command{
 		Use: "resource",
 	}
+	addDomainRootCmd.AddCommand(addDomainCmd, removeDomainCmd)
 	addResourceCmd := &cobra.Command{
 		Use: "add",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -116,10 +149,20 @@ func appsCmd() {
 			}
 		},
 	}
-	resourceCmd.AddCommand(addResourceCmd, removeResouceCmd)
+	resourceDumpCmd := &cobra.Command{
+		Use: "dump",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) > 0 {
+				dumpDatabase(args[0])
+			}else {
+				fmt.Println(color.RedString("resource name is missing"))
+			}
+		},
+	}
+	resourceCmd.AddCommand(addResourceCmd, removeResouceCmd, resourceDumpCmd)
 	scaleCmd.Flags().Int32P("instances", "i", 0, "number of instances to scale to")
 	createCmd.Flags().StringP("name", "n", "", "Preferred app name")
-	rootCmd.AddCommand(createCmd, logsCmd, deploymentCmd, scaleCmd, psCmd, rollbackCmd, resourceCmd)
+	rootCmd.AddCommand(createCmd, logsCmd, deploymentCmd, scaleCmd, psCmd, rollbackCmd, resourceCmd, addDomainRootCmd)
 }
 
 func createNewApp(name string) {
@@ -143,10 +186,16 @@ func createNewApp(name string) {
 	if err := createAppConfigFile(app.AppName); err != nil {
 	}
 	s.Stop()
+	gitUrl := fmt.Sprintf("https://git.hostgoapp.com/%s.git", app.AppName)
+	cmd := exec.Command("git", "remote", "add", "hostgo", gitUrl)
+	if err := cmd.Run(); err != nil {
+		fmt.Println(color.RedString(err.Error()))
+	}
 	fmt.Println(color.WhiteString("creating app...done"))
 	fmt.Println("\n===")
 	fmt.Printf("created app %s\n", color.GreenString(app.AppName))
-	fmt.Printf("access url: %s\n\n", color.GreenString(app.AccessUrl))
+	fmt.Printf("access url: %s", color.GreenString(app.AccessUrl))
+	fmt.Printf("git url: %s\n\n", color.GreenString(gitUrl))
 }
 
 func getAppLogs() {
@@ -186,7 +235,7 @@ func deployApp() {
 		color.Red("\n\nYou have to be authenticated before you can access an app. Run `hostgo login` to authenticate your account")
 		os.Exit(1)
 	}
-	s := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
+	s := spinner.New(spinner.CharSets[4], 500 * time.Millisecond)
 	s.Prefix = "packing app..."
 	s.Start()
 	deploymentClient := http.NewDeploymentClient(cfg.AppName, account)
@@ -198,7 +247,7 @@ func deployApp() {
 	fmt.Println(color.WhiteString("packing app...done"))
 	wd, _ := os.Getwd()
 	binPath := filepath.Join(wd, cfg.AppName)
-	ss := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
+	ss := spinner.New(spinner.CharSets[4], 500 * time.Millisecond)
 	ss.Prefix = "creating deployment..."
 	ss.Start()
 	startTime := time.Now()
@@ -215,9 +264,35 @@ func deployApp() {
 	fmt.Println("====")
 	message := fmt.Sprintf("%s", color.GreenString("Deployment updated! | https://%s.hostgoapp.com | %s:%s", cfg.AppName, cfg.AppName, r.Data.Version))
 	fmt.Println(message)
+	duration := time.Since(startTime).Seconds()
+	fmt.Printf("Operation took: %s\n", color.GreenString("%.2fsecs", duration))
 	fmt.Println()
-	endTime := time.Since(startTime).Seconds()
-	color.Green("Request took: %f", endTime)
+	os.Remove(binPath)
+}
+
+func dockerDeploy(dockerUrl string) {
+	cfg, err := readAppConfig()
+	if err != nil {
+		color.Red("failed to read app config: ", err.Error())
+		os.Exit(1)
+	}
+	provider := auth.NewAuthProvider()
+	account, err := provider.CurrentAuth()
+	if err != nil {
+		color.Red("\n\nYou have to be authenticated before you can access an app. Run `hostgo login` to authenticate your account")
+		os.Exit(1)
+	}
+	ss := spinner.New(spinner.CharSets[4], 500 * time.Millisecond)
+	ss.Prefix = "creating deployment..."
+	ss.Start()
+	op := ops.NewAppsOp(http.NewHttpClient(account))
+	s, err := op.DockerDeploy(cfg.AppName, dockerUrl)
+	if err != nil {
+		color.Red(err.Error())
+		return
+	}
+	ss.Stop()
+	fmt.Println("Deployment Updated: ", color.GreenString(s))
 }
 
 func createAppConfigFile(appName string) error {
@@ -382,6 +457,96 @@ func removeResource(name string) {
 	httpClient := http.NewHttpClient(account)
 	op := ops.NewAppsOp(httpClient)
 	r, err := op.DeleteResource(cfg.AppName, name)
+	if err != nil {
+		fmt.Println()
+		color.Red(err.Error())
+		fmt.Println()
+		os.Exit(1)
+	}
+	s.Stop()
+	fmt.Println(color.WhiteString(loading, "done"))
+	fmt.Println(color.GreenString(r))
+}
+
+func addDomain(domain string) {
+	cfg, err := readAppConfig()
+	if err != nil {
+		color.Red("failed to read app config: ", err.Error())
+		os.Exit(1)
+	}
+	provider := auth.NewAuthProvider()
+	account, err := provider.CurrentAuth()
+	if err != nil {
+		color.Red("\n\nYou have to be authenticated before you can access an app. Run `hostgo login` to authenticate your account")
+		os.Exit(1)
+	}
+	loading := fmt.Sprintf("adding domain %s...", domain)
+	s := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
+	s.Prefix = loading
+	s.Start()
+
+	op := ops.NewAppsOp(http.NewHttpClient(account))
+	r, err := op.AddDomain(cfg.AppName, domain)
+	if err != nil {
+		fmt.Println()
+		color.Red(err.Error())
+		fmt.Println()
+		os.Exit(1)
+	}
+	s.Stop()
+	fmt.Println(color.WhiteString(loading, "done"))
+	fmt.Println(color.GreenString(r))
+}
+
+func removeDomain(domain string) {
+	cfg, err := readAppConfig()
+	if err != nil {
+		color.Red("failed to read app config: ", err.Error())
+		os.Exit(1)
+	}
+	provider := auth.NewAuthProvider()
+	account, err := provider.CurrentAuth()
+	if err != nil {
+		color.Red("\n\nYou have to be authenticated before you can access an app. Run `hostgo login` to authenticate your account")
+		os.Exit(1)
+	}
+	loading := fmt.Sprintf("removing domain %s...", domain)
+	s := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
+	s.Prefix = loading
+	s.Start()
+
+	op := ops.NewAppsOp(http.NewHttpClient(account))
+	r, err := op.RemoveDomain(cfg.AppName, domain)
+	if err != nil {
+		fmt.Println()
+		color.Red(err.Error())
+		fmt.Println()
+		os.Exit(1)
+	}
+	s.Stop()
+	fmt.Println(color.WhiteString(loading, "done"))
+	fmt.Println(color.GreenString(r))
+}
+
+func dumpDatabase(resName string) {
+	cfg, err := readAppConfig()
+	if err != nil {
+		color.Red("failed to read app config: ", err.Error())
+		os.Exit(1)
+	}
+	provider := auth.NewAuthProvider()
+	account, err := provider.CurrentAuth()
+	if err != nil {
+		color.Red("\n\nYou have to be authenticated before you can access an app. Run `hostgo login` to authenticate your account")
+		os.Exit(1)
+	}
+	loading := fmt.Sprintf("working...")
+	s := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
+	s.Prefix = loading
+	s.Start()
+
+	op := ops.NewAppsOp(http.NewHttpClient(account))
+	r, err := op.DumpDatabase(cfg.AppName, resName)
 	if err != nil {
 		fmt.Println()
 		color.Red(err.Error())

@@ -101,7 +101,7 @@ func envCmd() {
 					os.Exit(1)
 				}
 				s.Stop()
-				fmt.Println(color.GreenString("%s\n", "envs config updated"))
+				fmt.Println(color.GreenString("%s\n", srvResponse.Message))
 			}
 		},
 		Short: "Set a new environment variable or update an existing one",

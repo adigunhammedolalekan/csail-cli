@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+const appConfigFileName = "csail.yml"
+
 func appsCmd() {
 	createCmd := &cobra.Command{
 		Use: "create",
@@ -39,16 +41,12 @@ func appsCmd() {
 	deploymentCmd := &cobra.Command{
 		Use: "deploy",
 		Run: func(cmd *cobra.Command, args []string) {
-			if len(args) < 1 {
-				color.Red("please provide docker image tag")
-				return
-			}
-			dockerUrl := args[0]
-			dockerDeploy(dockerUrl)
+			runDockerDeploy()
 		},
 		Short: "Deploy or update application deployment.",
 		Long: "`hostgo deploy` will pack and deploy your application to hostgolang.com",
 	}
+
 	scaleCmd := &cobra.Command{
 		Use: "scale",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -162,7 +160,8 @@ func appsCmd() {
 	resourceCmd.AddCommand(addResourceCmd, removeResouceCmd, resourceDumpCmd)
 	scaleCmd.Flags().Int32P("instances", "i", 0, "number of instances to scale to")
 	createCmd.Flags().StringP("name", "n", "", "Preferred app name")
-	rootCmd.AddCommand(createCmd, logsCmd, deploymentCmd, scaleCmd, psCmd, rollbackCmd, resourceCmd, addDomainRootCmd)
+	rootCmd.AddCommand(createCmd, logsCmd, deploymentCmd, scaleCmd, psCmd,
+		rollbackCmd, resourceCmd, addDomainRootCmd)
 }
 
 func createNewApp(name string) {
@@ -303,7 +302,7 @@ func createAppConfigFile(appName string) error {
 	if err != nil {
 		return err
 	}
-	filename := filepath.Join(wd, "hostgo.yml")
+	filename := filepath.Join(wd, appConfigFileName)
 	d, err := yaml.Marshal(c)
 	if err != nil {
 		return err
@@ -317,7 +316,7 @@ func readAppConfig() (*types.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	filename := filepath.Join(wd, "hostgo.yml")
+	filename := filepath.Join(wd, appConfigFileName)
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
@@ -418,7 +417,7 @@ func provisionResource(name string) {
 		color.Red("\n\nYou have to be authenticated before you can access an app. Run `hostgo login` to authenticate your account")
 		os.Exit(1)
 	}
-	loading := fmt.Sprintf("adding %s...", name)
+	loading := "adding " + name + "..."
 	s := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
 	s.Prefix = loading
 	s.Start()
@@ -433,7 +432,7 @@ func provisionResource(name string) {
 		os.Exit(1)
 	}
 	s.Stop()
-	fmt.Println(color.WhiteString(loading, "done"))
+	fmt.Println(color.WhiteString(loading + "done"))
 	fmt.Println(color.GreenString(r))
 }
 
@@ -449,7 +448,7 @@ func removeResource(name string) {
 		color.Red("\n\nYou have to be authenticated before you can access an app. Run `hostgo login` to authenticate your account")
 		os.Exit(1)
 	}
-	loading := fmt.Sprintf("removing %s...", name)
+	loading := "removing " + name + "..."
 	s := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
 	s.Prefix = loading
 	s.Start()
@@ -464,7 +463,7 @@ func removeResource(name string) {
 		os.Exit(1)
 	}
 	s.Stop()
-	fmt.Println(color.WhiteString(loading, "done"))
+	fmt.Println(color.WhiteString(loading + "done"))
 	fmt.Println(color.GreenString(r))
 }
 
@@ -556,4 +555,52 @@ func dumpDatabase(resName string) {
 	s.Stop()
 	fmt.Println(color.WhiteString(loading, "done"))
 	fmt.Println(color.GreenString(r))
+}
+
+func runDockerDeploy() {
+	cfg, err := readAppConfig()
+	if err != nil {
+		color.Red("failed to read app config: ", err.Error())
+		os.Exit(1)
+	}
+	loading := "working..."
+	s := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
+	s.Prefix = loading
+	s.Start()
+
+	op, err := ops.NewDockerOps()
+	if err != nil {
+		fmt.Println(color.RedString(err.Error()))
+		os.Exit(1)
+	}
+	s.Stop()
+	b := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
+	b.Prefix = "Building image..."
+	b.Start()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		color.Red(err.Error())
+		os.Exit(1)
+	}
+	ref, err := op.BuildImage(wd, cfg.AppName)
+	if err != nil {
+		fmt.Println(color.RedString(err.Error()))
+		os.Exit(1)
+	}
+	b.Stop()
+	fmt.Println(color.WhiteString("building image...done"))
+	p := spinner.New(spinner.CharSets[4], 200 * time.Millisecond)
+	pPrefix := "Pushing image..." + ref + "..."
+	p.Prefix = pPrefix
+	p.Start()
+
+	err = op.PushImage(ref)
+	if err != nil {
+		fmt.Println(color.RedString(err.Error()))
+		os.Exit(1)
+	}
+	p.Stop()
+	fmt.Println(color.WhiteString(pPrefix + "done"))
+	dockerDeploy(ref)
 }
